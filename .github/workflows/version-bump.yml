@@ -58,7 +58,8 @@ jobs:
       - name: Update pubspec.yaml
         working-directory: .
         run: |
-          sed -i "s/^version: .*/version: ${{ steps.new_version.outputs.version }}+${{ github.run_number }}/" pubspec.yaml
+          build_number=$((3100000 + ${{ github.run_number }}))
+          sed -i "s/^version: .*/version: ${{ steps.new_version.outputs.version }}+$build_number/" pubspec.yaml
 
       - name: Commit version bump
         run: |
@@ -95,7 +96,7 @@ jobs:
             1. **Android**: Download the APK file and install it on your device
             2. **iOS**: Requires development provisioning profile
             
-            **Build Number**: ${{ github.run_number }}
+            **Build Number**: 3100000 + workflow run number
             **Previous Version**: ${{ steps.current_version.outputs.current }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

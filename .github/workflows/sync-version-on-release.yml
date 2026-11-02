@@ -9,6 +9,7 @@ env:
 
 jobs:
   sync-version:
+    if: github.repository == 'schulydev/Schuly'
     name: Sync application.properties + pubspec.yaml with release tag
     runs-on: ubuntu-latest
     permissions:

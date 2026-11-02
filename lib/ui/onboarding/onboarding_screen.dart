@@ -442,7 +442,7 @@ class _ModeChoicePage extends StatelessWidget {
                 title: 'Schuly account',
                 tag: 'Recommended',
                 body: 'Notifications, web access, and sync across devices. '
-                    'Secured with a password and optional two-factor.',
+                    'Sign in securely with GamepowerX.',
                 selected: selected == _Mode.account,
                 onTap: () => onSelect(_Mode.account),
               ),

@@ -11,7 +11,7 @@ Map<String, dynamic> _release({String tag = 'v3.1.0', List<Map<String, dynamic>>
       'draft': draft,
       'prerelease': pre,
       'body': '  ## Highlights\n- Auto update\n',
-      'html_url': htmlUrl ?? 'https://github.com/schulydev/Schuly/releases/tag/$tag',
+      'html_url': htmlUrl ?? 'https://github.com/craftingdragon/Schuly/releases/tag/$tag',
       'assets': assets ??
           [
             _asset('schuly-$tag.apk', tag, size: 1000, digest: 'sha256:$_sha'),
@@ -24,7 +24,7 @@ Map<String, dynamic> _asset(String name, String tag, {int size = 1, String? dige
       'name': name,
       'size': size,
       'digest': digest,
-      'browser_download_url': url ?? 'https://github.com/schulydev/Schuly/releases/download/$tag/$name',
+      'browser_download_url': url ?? 'https://github.com/craftingdragon/Schuly/releases/download/$tag/$name',
     };
 
 void main() {
@@ -92,10 +92,10 @@ void main() {
     test('rejects assets from another repo, host or scheme', () {
       for (final url in [
         'https://github.com/evil/Schuly/releases/download/v3.1.0/schuly-v3.1.0.apk',
-        'http://github.com/schulydev/Schuly/releases/download/v3.1.0/schuly-v3.1.0.apk',
-        'https://evil.com/schulydev/Schuly/releases/download/v3.1.0/schuly-v3.1.0.apk',
-        'https://github.com.evil.com/schulydev/Schuly/releases/download/v3.1.0/schuly-v3.1.0.apk',
-        'https://github.com/schulydev/Schuly/releases/download/v3.0.0/schuly-v3.1.0.apk',
+        'http://github.com/craftingdragon/Schuly/releases/download/v3.1.0/schuly-v3.1.0.apk',
+        'https://evil.com/craftingdragon/Schuly/releases/download/v3.1.0/schuly-v3.1.0.apk',
+        'https://github.com.evil.com/craftingdragon/Schuly/releases/download/v3.1.0/schuly-v3.1.0.apk',
+        'https://github.com/craftingdragon/Schuly/releases/download/v3.0.0/schuly-v3.1.0.apk',
       ]) {
         final r = ReleaseInfo.tryParse(_release(assets: [_asset('schuly-v3.1.0.apk', 'v3.1.0', size: 10, url: url)]))!;
         expect(r.apk, isNull, reason: url);
@@ -103,7 +103,7 @@ void main() {
     });
 
     test('rejects a release page outside the repo', () {
-      expect(ReleaseInfo.tryParse(_release(htmlUrl: 'https://evil.com/schulydev/Schuly/releases/tag/v3.1.0')), isNull);
+      expect(ReleaseInfo.tryParse(_release(htmlUrl: 'https://evil.com/craftingdragon/Schuly/releases/tag/v3.1.0')), isNull);
     });
 
     test('ignores malformed digests and zero-size apks', () {

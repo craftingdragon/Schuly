@@ -1,7 +1,7 @@
 import 'app_version.dart';
 
 /// The only repository updates are ever taken from.
-const updateRepo = 'schulydev/Schuly';
+const updateRepo = 'craftingdragon/Schuly';
 
 /// A downloadable file attached to a release.
 class ReleaseAsset {

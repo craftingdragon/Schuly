@@ -1,0 +1,7 @@
+gradle.beforeSettings { settings ->
+    settings.pluginManagement.repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}

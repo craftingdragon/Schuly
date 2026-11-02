@@ -17,7 +17,7 @@ class BackendConfig {
 
   static const hostedUrl = String.fromEnvironment(
     'BACKEND_BASE_URL',
-    defaultValue: 'http://localhost:5033',
+    defaultValue: 'https://schuly.gamepowerx.com',
   );
 
   static String _url = hostedUrl;

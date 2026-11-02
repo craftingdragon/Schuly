@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
@@ -10,9 +9,6 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import '../config/backend_config.dart';
-import 'email_verification.dart';
-
-export 'email_verification.dart';
 
 /// Why a token refresh failed.
 enum AuthFailure {
@@ -35,23 +31,7 @@ class AuthRefresh {
   final AuthFailure? failure;
 }
 
-/// A sign-in the server answered with a second-factor challenge instead of tokens.
-class TwoFactorChallenge {
-  const TwoFactorChallenge(this.challenge);
-
-  final String challenge;
-}
-
-/// What a sign-in step still needs before the user is in: a second-factor code
-/// or a confirmed email address. A null [AuthNext] means the account is signed in.
-class AuthNext {
-  const AuthNext({this.twoFactor, this.emailVerification});
-
-  final TwoFactorChallenge? twoFactor;
-  final EmailVerificationChallenge? emailVerification;
-}
-
-/// A single sign-on provider the server offers next to the password.
+/// A single sign-on provider offered by the Schuly server.
 class SignInProvider {
   const SignInProvider(this.key, this.displayName, this.iconUrl);
 
@@ -71,13 +51,12 @@ class AuthException implements Exception {
   String toString() => message;
 }
 
-/// Password sign-in against the Schuly server's own `/auth` endpoints. The
-/// refresh token and the remembered-device token live in the platform keystore.
+/// Federated authentication against the Schuly server. Session tokens live in
+/// the platform keystore; refresh and logout stay on the same server session.
 class AuthService {
   static const _kRefreshTokenKey = 'auth.refresh_token';
   static const _kAccessTokenKey = 'auth.access_token.v2';
   static const _kAccessTokenExpiryKey = 'auth.access_token_expiry';
-  static const _kDeviceTokenKey = 'auth.device_token';
   static const _kLegacyKeys = ['auth.access_token', 'auth.id_token'];
 
   static const _storage = FlutterSecureStorage(
@@ -91,13 +70,10 @@ class AuthService {
 
   static Uri _uri(String path) => Uri.parse('${BackendConfig.url}$path');
 
-  static Future<http.Response> _post(String path, Map<String, Object?> body, {String? accessToken}) {
+  static Future<http.Response> _post(String path, Map<String, Object?> body) {
     return http.post(
       _uri(path),
-      headers: {
-        HttpHeaders.contentTypeHeader: 'application/json',
-        if (accessToken != null) HttpHeaders.authorizationHeader: 'Bearer $accessToken',
-      },
+      headers: {HttpHeaders.contentTypeHeader: 'application/json'},
       body: jsonEncode(body),
     ).timeout(const Duration(seconds: 20));
   }
@@ -116,30 +92,10 @@ class AuthService {
     return AuthException(fallback, statusCode: response.statusCode);
   }
 
-  /// Signs in with a username or email and a password. Returns null when the
-  /// account is signed in, or a [TwoFactorChallenge] when a code is needed.
-  static Future<AuthNext?> signIn(String identifier, String password) async {
-    final deviceToken = await _storage.read(key: _kDeviceTokenKey);
-    final response = await _post('/auth/login', {'identifier': identifier, 'password': password, 'deviceToken': ?deviceToken});
-    if (response.statusCode != 200) throw _refusal(response, "That didn't match. Check your username and password.");
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    return _next(body);
-  }
-
-  /// Turns a token-or-challenge response into the next step, persisting tokens
-  /// when the account is signed in.
-  static Future<AuthNext?> _next(Map<String, dynamic> body) async {
-    final verification = EmailVerificationChallenge.tryParse(body);
-    if (verification != null) return AuthNext(emailVerification: verification);
-    if (body['two_factor_required'] == true) return AuthNext(twoFactor: TwoFactorChallenge(body['challenge'] as String));
-    await _persist(body);
-    return null;
-  }
-
   static const _externalErrors = {
     'access_denied': 'You cancelled the sign-in.',
-    'account_not_found': 'No Schuly account uses that sign-in yet. Create an account first, then link it on the web.',
-    'account_exists': 'An account with that email already exists. Sign in with your password, then link this provider on the web.',
+    'account_not_found': 'This identity is not allowed to sign in to Schuly. Contact your administrator if you need access.',
+    'account_exists': 'This identity could not be linked to a Schuly account. Contact your administrator.',
     'external_login_failed': 'Signing in with that provider did not work. Try again.',
   };
 
@@ -159,9 +115,8 @@ class AuthService {
     }
   }
 
-  /// Signs in through a provider in the system browser. Returns null when the
-  /// account is signed in, or a [TwoFactorChallenge] when a code is needed.
-  static Future<AuthNext?> signInWithProvider(String provider) async {
+  /// Signs in through a provider in the system browser and stores the session.
+  static Future<void> signInWithProvider(String provider) async {
     final verifier = _randomToken();
     final state = _randomToken();
     final challenge = base64Url.encode(sha256.convert(utf8.encode(verifier)).bytes).replaceAll('=', '');
@@ -189,66 +144,18 @@ class AuthService {
     final response = await _post('/auth/external/exchange', {'code': code, 'codeVerifier': verifier});
     if (response.statusCode != 200) throw _refusal(response, _externalErrors['external_login_failed']!);
     final body = jsonDecode(response.body) as Map<String, dynamic>;
-    return _next(body);
+    if (!body.containsKey('access_token')) {
+      if (body['two_factor_required'] == true || body['email_verification_required'] == true) {
+        throw const AuthException('Use your GamepowerX verification to finish signing in, or contact your administrator.');
+      }
+      throw const AuthException('The identity provider did not complete sign-in. Contact your administrator.');
+    }
+    await _persist(body);
   }
 
   static String _randomToken() {
     final random = Random.secure();
     return base64Url.encode(List<int>.generate(32, (_) => random.nextInt(256))).replaceAll('=', '');
-  }
-
-  /// Finishes a sign-in with a code from the authenticator app or a recovery code.
-  static Future<void> verifyCode(TwoFactorChallenge challenge, String code, {bool rememberDevice = false}) async {
-    final response = await _post('/auth/2fa/verify', {'challenge': challenge.challenge, 'code': code, 'rememberDevice': rememberDevice, 'deviceLabel': _deviceLabel()});
-    if (response.statusCode != 200) throw _refusal(response, "That code didn't work. Wait for the next code in your app and enter that one.");
-    await _persist(jsonDecode(response.body) as Map<String, dynamic>);
-  }
-
-  /// Creates an account. Returns the email confirmation step when the server
-  /// wants the address confirmed first; otherwise signs in, mails a link to
-  /// confirm the address, and returns null.
-  static Future<EmailVerificationChallenge?> register(String userName, String email, String password) async {
-    final response = await _post('/auth/register', {'userName': userName, 'email': email, 'password': password});
-    if (response.statusCode != 201) throw _refusal(response, 'That username or email is already taken.');
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    final verification = EmailVerificationChallenge.tryParse(body);
-    if (verification != null) return verification;
-    final tokens = await _persist(body);
-    try {
-      await _post('/auth/email', {'newEmail': email, 'currentPassword': password}, accessToken: tokens);
-    } catch (_) {}
-    return null;
-  }
-
-  /// Finishes the email confirmation with the mailed code. Returns null when
-  /// signed in, or the second-factor step. Throws [EmailCodeException].
-  static Future<AuthNext?> verifyEmailCode(EmailVerificationChallenge pending, String code) async {
-    final http.Response response;
-    try {
-      response = await _post('/auth/email/verify-code', {'challenge': pending.challenge, 'code': code});
-    } on TimeoutException {
-      throw const EmailCodeException(EmailCodeErrorKind.other);
-    }
-    if (response.statusCode != 200) throw mapEmailCodeError(response.statusCode, response.body, retryAfterHeader: response.headers['retry-after']);
-    return _next(jsonDecode(response.body) as Map<String, dynamic>);
-  }
-
-  /// Mails a fresh code for the pending confirmation. Throws [EmailCodeException];
-  /// a rate limit carries the seconds to wait.
-  static Future<void> resendEmailCode(EmailVerificationChallenge pending) async {
-    final http.Response response;
-    try {
-      response = await _post('/auth/email/resend-code', {'challenge': pending.challenge});
-    } on TimeoutException {
-      throw const EmailCodeException(EmailCodeErrorKind.other);
-    }
-    if (response.statusCode != 204 && response.statusCode != 200) throw mapEmailCodeError(response.statusCode, response.body, retryAfterHeader: response.headers['retry-after']);
-  }
-
-  /// Mails a password reset link when the address belongs to a confirmed account.
-  static Future<void> requestPasswordReset(String email) async {
-    final response = await _post('/auth/password/forgot', {'email': email});
-    if (response.statusCode != 204) throw _refusal(response, 'That did not work. Try again in a moment.');
   }
 
   static Future<String> _persist(Map<String, dynamic> body) async {
@@ -260,8 +167,6 @@ class AuthService {
     await _storage.write(key: _kAccessTokenExpiryKey, value: _accessTokenExpiry!.toIso8601String());
     final refreshToken = body['refresh_token'] as String?;
     if (refreshToken != null) await _storage.write(key: _kRefreshTokenKey, value: refreshToken);
-    final deviceToken = body['device_token'] as String?;
-    if (deviceToken != null) await _storage.write(key: _kDeviceTokenKey, value: deviceToken);
     sessionEpoch.value++;
     return accessToken;
   }
@@ -346,8 +251,4 @@ class AuthService {
     return hadSession;
   }
 
-  static String _deviceLabel() {
-    if (kIsWeb) return 'Schuly app';
-    return 'Schuly app on ${Platform.isIOS ? 'iOS' : Platform.isAndroid ? 'Android' : Platform.operatingSystem}';
-  }
 }
