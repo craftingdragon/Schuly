@@ -180,7 +180,7 @@ jobs:
           path: ./artifacts/
 
   build-ios:
-    runs-on: macos-latest
+    runs-on: macos-15-intel
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
